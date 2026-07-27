@@ -21,7 +21,7 @@ console-aware CSV / print sheet.
 ## Install
 
 Download the latest build for your OS from
-[**Releases**](https://github.com/petewalton86/pluggedin-bridge-app/releases):
+[**Releases**](https://github.com/pluggedin-tech/pluggedin-bridge-app/releases):
 
 - **Windows** — `PluggedIn Desk Bridge Setup x.y.z.exe` (installer) or the
   portable `.exe`.

@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/petewalton86/pluggedin-bridge-app.git"
+    "url": "https://github.com/pluggedin-tech/pluggedin-bridge-app.git"
   },
   "main": "electron/main.cjs",
   "scripts": {
