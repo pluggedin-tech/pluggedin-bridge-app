@@ -31,11 +31,16 @@ of the PluggedIn glyph and rebuild.
 
 ## Releases (CI)
 Pushing a version tag builds all three platforms and attaches the installers to
-the GitHub Release:
+the GitHub Release. The release notes come from `CHANGELOG.md`, so write the
+entry first:
 ```bash
-npm version patch        # bumps package.json + creates the tag
-git push --follow-tags   # CI builds Windows/macOS/Linux and uploads them
+# 1. Add a "## [x.y.z] - YYYY-MM-DD" section to CHANGELOG.md (written for the
+#    people who use the app), and commit it.
+npm version patch        # 2. bumps package.json + creates the tag
+git push --follow-tags   # 3. CI builds Windows/macOS/Linux and uploads them
 ```
+The workflow stops before building if the tag doesn't match `package.json` or
+`CHANGELOG.md` has no section for that version.
 
 ## Code signing (TODO)
 Builds are **unsigned** today, so download warnings appear. electron-builder signs
