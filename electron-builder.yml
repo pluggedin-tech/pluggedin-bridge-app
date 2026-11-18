@@ -16,8 +16,6 @@ files:
   - tcp.mjs
   - x32.mjs
   - xair.mjs
-  - yamaha.mjs
-  - ah.mjs
   - package.json
 
 win:

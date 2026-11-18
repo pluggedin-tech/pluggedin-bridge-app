@@ -52,8 +52,21 @@ const oscAddress = (buf) => {
 
 // 3. core token store (isolated temp HOME) + normalizeApi
 {
-  ok('normalizeApi adds scheme', normalizeApi('localhost:4000') === 'http://localhost:4000')
-  ok('normalizeApi strips trailing slash', normalizeApi('http://h/') === 'http://h')
+  const code = (fn) => {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e.code
+    }
+  }
+  ok('normalizeApi: localhost without a scheme gets http', normalizeApi('localhost:4000') === 'http://localhost:4000')
+  ok('normalizeApi: 127.0.0.1 without a scheme gets http', normalizeApi('127.0.0.1:4000') === 'http://127.0.0.1:4000')
+  ok('normalizeApi: a host without a scheme gets https', normalizeApi('trypluggedin.com') === 'https://trypluggedin.com')
+  ok('normalizeApi strips trailing slash', normalizeApi('https://h/') === 'https://h')
+  ok('normalizeApi keeps http for localhost', normalizeApi('http://localhost:4000/') === 'http://localhost:4000')
+  ok('normalizeApi rejects http for a remote host', code(() => normalizeApi('http://trypluggedin.com')) === 'insecure')
+  ok('normalizeApi: localhost.<domain> is not local', code(() => normalizeApi('http://localhost.evil.example')) === 'insecure')
   await core.storeToken('localhost:4000', 'tok_abc', null, 'FOH')
   const st = await core.getState('http://localhost:4000/') // variants normalise to one key
   ok('getState paired after store', st.paired === true && st.label === 'FOH')
@@ -150,7 +163,7 @@ await new Promise((resolve) => {
 
 // 7. loadPatch URL building: consolidated vs per-band (slice/standalone)
 {
-  await core.storeToken('http://api.test', 'tok_lp', null, 'FOH')
+  await core.storeToken('https://api.test', 'tok_lp', null, 'FOH')
   const realFetch = global.fetch
   let lastUrl = ''
   global.fetch = async (url) => {
@@ -158,16 +171,16 @@ await new Promise((resolve) => {
     return { ok: true, status: 200, json: async () => ({ channels: [], lineup: [] }) }
   }
   try {
-    await core.loadPatch('http://api.test', 'ev1')
-    ok('loadPatch (master) → no query params', lastUrl === 'http://api.test/api/bridge/events/ev1/patch')
-    await core.loadPatch('http://api.test', 'ev1', { requestId: 'b2', mode: 'standalone' })
+    await core.loadPatch('https://api.test', 'ev1')
+    ok('loadPatch (master) → no query params', lastUrl === 'https://api.test/api/bridge/events/ev1/patch')
+    await core.loadPatch('https://api.test', 'ev1', { requestId: 'b2', mode: 'standalone' })
     ok(
       'loadPatch (per-band) → requestId + mode in query',
-      lastUrl === 'http://api.test/api/bridge/events/ev1/patch?requestId=b2&mode=standalone',
+      lastUrl === 'https://api.test/api/bridge/events/ev1/patch?requestId=b2&mode=standalone',
     )
   } finally {
     global.fetch = realFetch
-    await core.clearToken('http://api.test')
+    await core.clearToken('https://api.test')
   }
 }
 

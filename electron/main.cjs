@@ -1,7 +1,7 @@
 // Electron main process for the PluggedIn Desk Bridge. Owns the window and runs
 // all bridge logic (pairing, fetch, OSC over UDP) by importing the ESM core.
 // The renderer is sandboxed and talks to us only through the preload bridge.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -35,16 +35,32 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Electron's default since v20, stated so a config change can't drop it.
+      sandbox: true,
     },
   })
   win.removeMenu()
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
 }
 
+// The window only ever shows renderer/index.html. Refuse navigation, new
+// windows and every permission (camera, mic, notifications…), so nothing that
+// reaches the page can turn it into a browser. External links go through the
+// 'open-external' handler, which opens them in the user's own browser.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (e) => e.preventDefault())
+  contents.on('will-redirect', (e) => e.preventDefault())
+  contents.on('will-attach-webview', (e) => e.preventDefault())
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+})
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+    session.defaultSession.setPermissionCheckHandler(() => false)
+
     handle('state', (core, api) => core.getState(api))
     handle('pair', (core, api, code, label) => core.pair(api, code, label))
     handle('forget', (core, api) => core.clearToken(api))

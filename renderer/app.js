@@ -3,10 +3,12 @@
 const $ = (id) => document.getElementById(id)
 const B = window.bridge
 
-// Default PluggedIn API. Change this ONE line to the hosted URL once the live
-// app is deployed (e.g. 'https://api.pluggedin.app') and rebuild — users then
-// never see/type it; the Advanced field only overrides it.
-const DEFAULT_API = 'http://localhost:4000'
+// The hosted PluggedIn API. Users never need to type it; the Advanced field
+// only overrides it (e.g. http://localhost:4000 when developing).
+const DEFAULT_API = 'https://trypluggedin.com'
+// Releases up to 0.6.0 defaulted to this and saved it on every pairing attempt,
+// so a stored copy is the old default rather than a choice. Drop it.
+const OLD_DEFAULT_API = 'http://localhost:4000'
 
 const COLORS = {
   OFF: '#64748b', RD: '#ef4444', GN: '#22c55e', YE: '#eab308',
@@ -85,8 +87,11 @@ async function doPair() {
   $('pair-btn').disabled = true
   $('pair-btn').textContent = 'Pairing…'
   try {
-    store.set('pi_api', api())
     await call(B.pair(api(), code))
+    // Remember an override only once it has paired, so a rejected address is
+    // not kept, and a later change to DEFAULT_API still reaches everyone else.
+    if (api() === DEFAULT_API) localStorage.removeItem('pi_api')
+    else store.set('pi_api', api())
     $('code').value = ''
     await refreshState()
   } catch (e) {
@@ -288,7 +293,14 @@ async function loadFile() {
     const p = await call(B.patchFile())
     if (!p) return
     patch = p
-    $('event').innerHTML = `<option>${(p.eventName || 'Loaded file')}</option>`
+    // A file is not a server event: forget the last one, so changing Patch or
+    // Layout can't silently swap the file for that event's patch.
+    currentEventId = null
+    populateBands([])
+    // The name comes from the file, so it goes in as text, never as HTML.
+    const opt = document.createElement('option')
+    opt.textContent = p.eventName || 'Loaded file'
+    $('event').replaceChildren(opt)
     renderPatch()
     status('Loaded patch from file.', 'busy')
   } catch (e) {
@@ -298,6 +310,7 @@ async function loadFile() {
 
 // ── wire up ───────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  if (store.get('pi_api', '') === OLD_DEFAULT_API) localStorage.removeItem('pi_api')
   $('api').value = store.get('pi_api', DEFAULT_API)
   $('desk').value = store.get('pi_desk', '')
 

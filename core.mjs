@@ -31,13 +31,38 @@ export const defaultPort = (console) => driverFor(console).port
 /** Build the messages/frames for a channel list + console (sync). */
 export const messagesFor = (channels, { console } = {}) => driverFor(console).build(channels)
 
-/** Accept "localhost:4000"/"host" without a scheme — default to http://. */
-export function normalizeApi(u) {
-  const s = (u || '').trim().replace(/\/+$/, '')
-  return s && !/^https?:\/\//i.test(s) ? `http://${s}` : s
+const err = (message, code) => Object.assign(new Error(message), { code })
+
+// Plain http is only for a PluggedIn server on this machine (development).
+// Anywhere else it would send the bridge token unencrypted, and the server's
+// http→https redirect turns the pairing POST into a GET anyway.
+const LOCAL_HOST = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/i
+const isLocal = (url) => {
+  try {
+    return LOCAL_HOST.test(new URL(url).hostname)
+  } catch {
+    return false
+  }
 }
 
-const err = (message, code) => Object.assign(new Error(message), { code })
+/**
+ * Normalise an API address: trim, drop trailing slashes, and add a scheme when
+ * there is none (https, or http for localhost). Throws (code 'insecure') for an
+ * explicit http:// address that is not local.
+ */
+export function normalizeApi(u) {
+  const s = (u || '').trim().replace(/\/+$/, '')
+  if (!s) return s
+  if (/^https:\/\//i.test(s)) return s
+  if (/^http:\/\//i.test(s)) {
+    if (isLocal(s)) return s
+    throw err(
+      'Use an https:// address for PluggedIn. Plain http would send your token unencrypted.',
+      'insecure',
+    )
+  }
+  return isLocal(`http://${s}`) ? `http://${s}` : `https://${s}`
+}
 
 // ── token store (~/.pluggedin-bridge.json, keyed by API URL) ─────────────────
 const STORE = path.join(os.homedir(), '.pluggedin-bridge.json')
@@ -158,8 +183,8 @@ export async function loadPatchFile(file) {
 }
 
 /**
- * Send the patch's channels to the chosen console. OSC desks (X32/X-Air) go over
- * UDP; Yamaha (SCP) and Allen & Heath (MIDI) go over TCP. Returns the count sent.
+ * Send the patch's channels to the chosen console over the driver's transport
+ * (UDP OSC for every desk in DRIVERS today). Returns the count sent.
  */
 export async function push(channels, { desk, port, pace = 25, console } = {}) {
   if (!desk) throw err('No console IP.', 'no_desk')
