@@ -41,7 +41,7 @@ jobs:
           cat release-notes.md
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-notes
+          name: release-notes-${{ github.ref_name }}
           path: release-notes.md
 
   build:
@@ -51,14 +51,17 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            platform: windows
             args: ''
           - os: ubuntu-latest
+            platform: linux
             args: ''
           # The Mac build runs on an Intel runner and makes both an Apple
           # Silicon and an Intel .dmg. macos-latest is Apple Silicon only, and
           # v0.6.1 never got one ("not acquired by Runner ... after multiple
           # attempts", arm64 capacity), which blocked the whole release.
           - os: macos-15-intel
+            platform: macos
             args: '--mac --arm64 --x64'
     runs-on: ${{ matrix.os }}
     steps:
@@ -82,7 +85,8 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: installers-${{ matrix.os }}
+          # e.g. pluggedin-desk-bridge-v0.7.0-windows
+          name: pluggedin-desk-bridge-${{ github.ref_name }}-${{ matrix.platform }}
           if-no-files-found: ignore
           path: |
             dist/*.exe
@@ -103,12 +107,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: installers-*
+          pattern: pluggedin-desk-bridge-*
           path: artifacts
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-notes
+          name: release-notes-${{ github.ref_name }}
           path: notes
 
       - name: Check what was built
