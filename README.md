@@ -38,7 +38,9 @@ Download the latest build for your OS from
    desk bridge** and generate a code. Launch the app, paste the code, click
    **Pair this device**. It swaps the code for a **scoped, read-only, revocable**
    token (it can only read your events' console patches — never your password)
-   and remembers this device. Revoke it any time from the same dialog.
+   and remembers this device, with the token encrypted by your OS (Windows
+   credential protection, the macOS Keychain, or the Linux Secret Service).
+   Revoke it any time from the same dialog.
 2. **Pick the event** from the dropdown.
 3. **Choose the patch** (optional): the **Master patch (all bands)** by default, or a
    single band to load between sets — either on its **master channels** (re-label per
@@ -67,7 +69,7 @@ It does **not** set gains/EQ/dynamics/routing (PluggedIn doesn't hold those).
 ```bash
 npm install
 npm run dev      # launch the Electron app
-npm test         # headless core tests (OSC + X32 mapping + UDP + token store)
+npm test         # headless core tests (OSC + X32 mapping + UDP + token store + encryption)
 ```
 Build installers: see [BUILD.md](BUILD.md). Architecture: the Electron **main
 process** (`electron/main.cjs`) runs all logic via `core.mjs` (pairing, fetch,

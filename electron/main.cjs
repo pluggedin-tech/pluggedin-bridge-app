@@ -1,14 +1,39 @@
 // Electron main process for the PluggedIn Desk Bridge. Owns the window and runs
 // all bridge logic (pairing, fetch, OSC over UDP) by importing the ESM core.
 // The renderer is sandboxed and talks to us only through the preload bridge.
-const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, session, shell } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
+// The core, loaded once, with the pairing token encrypted by the OS
+// (safeStorage: DPAPI on Windows, Keychain on macOS, Secret Service on Linux).
+// safeStorage needs the app ready, which it is: getCore runs from whenReady and
+// IPC handlers. Where the OS offers no encryption the token stays in the
+// owner-only file as before, rather than the bridge refusing to work.
 let corePromise
 const getCore = () => {
   if (!corePromise)
-    corePromise = import(pathToFileURL(path.join(__dirname, '..', 'core.mjs')).href)
+    corePromise = import(pathToFileURL(path.join(__dirname, '..', 'core.mjs')).href).then(
+      async (core) => {
+        try {
+          if (await safeStorage.isAsyncEncryptionAvailable()) {
+            core.setVault({
+              encrypt: async (s) => (await safeStorage.encryptStringAsync(s)).toString('base64'),
+              decrypt: async (b64) => {
+                const r = await safeStorage.decryptStringAsync(Buffer.from(b64, 'base64'))
+                return { value: r.result, stale: !!r.shouldReEncrypt }
+              },
+            })
+            await core.migrateStore()
+          }
+        } catch (e) {
+          // A broken keychain must not take the whole bridge down with it.
+          console.error('Token encryption unavailable:', e)
+          core.setVault(null)
+        }
+        return core
+      },
+    )
   return corePromise
 }
 
@@ -60,6 +85,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
     session.defaultSession.setPermissionCheckHandler(() => false)
+    getCore() // encrypt any plaintext token now, not on the first request
 
     handle('state', (core, api) => core.getState(api))
     handle('pair', (core, api, code, label) => core.pair(api, code, label))

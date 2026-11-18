@@ -58,7 +58,9 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
             dist/*.blockmap
-            dist/*.yml
+            dist/latest*.yml
+          # Not dist/*.yml: that also matched builder-debug.yml, electron-builder's
+          # build-machine dump, which v0.6.2 published as a release asset.
 
   # Publish once, after the builds — avoids 3 jobs racing to create the Release.
   # Runs even if one platform failed, so a stuck runner on one OS can't hold

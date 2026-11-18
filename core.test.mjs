@@ -2,7 +2,7 @@
 import dgram from 'node:dgram'
 import os from 'node:os'
 import path from 'node:path'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { encode } from './osc.mjs'
 
 // Isolate the token store under a temp HOME *before* importing core (it computes
@@ -75,6 +75,63 @@ const oscAddress = (buf) => {
   ok('clearToken forgets it', (await core.getStoredToken('localhost:4000')) === null)
   await core.storeToken('h', 'old', new Date(Date.now() - 1000).toISOString(), 'x')
   ok('expired token is ignored', (await core.getStoredToken('h')) === null)
+  await core.clearToken('h')
+}
+
+// 3b. Encrypted token store. A stand-in vault (reversible, tagged) plays the
+// part of Electron's safeStorage, which only exists inside the app.
+{
+  const storeFile = path.join(tmp, '.pluggedin-bridge.json')
+  const onDisk = () => readFileSync(storeFile, 'utf8')
+  // Tag 'k2:' is the current key; 'k1:' an older one the OS can still read
+  // but asks us to re-encrypt (safeStorage's shouldReEncrypt).
+  const enc = (tag, s) => Buffer.from(tag + [...s].reverse().join('')).toString('base64')
+  const vault = {
+    encrypt: async (s) => enc('k2:', s),
+    decrypt: async (b64) => {
+      const t = Buffer.from(b64, 'base64').toString()
+      if (!/^k[12]:/.test(t)) throw new Error('not ours')
+      return { value: [...t.slice(3)].reverse().join(''), stale: t.startsWith('k1:') }
+    },
+  }
+
+  // A token paired before encryption existed…
+  await core.storeToken('https://old.test', 'tok_plain_secret', null, 'FOH')
+  ok('without a vault the token is stored as before', onDisk().includes('tok_plain_secret'))
+
+  // …is encrypted in place once the vault is set, and still works.
+  core.setVault(vault)
+  ok('migrateStore converts the plaintext entry', (await core.migrateStore()) === 1)
+  ok('after migration the token is not on disk in clear', !onDisk().includes('tok_plain_secret'))
+  ok('after migration the token still reads back', (await core.getStoredToken('https://old.test')) === 'tok_plain_secret')
+  ok('migrateStore is a no-op the second time', (await core.migrateStore()) === 0)
+
+  // New pairings are encrypted from the start.
+  await core.storeToken('https://new.test', 'tok_new_secret', null, 'FOH')
+  ok('a new token is never written in clear', !onDisk().includes('tok_new_secret'))
+  ok('a new token reads back', (await core.getStoredToken('https://new.test')) === 'tok_new_secret')
+  ok('getState is paired with an encrypted token', (await core.getState('https://new.test')).paired === true)
+
+  // A key rotation: an entry under the old key reads fine and is re-stored
+  // under the current one.
+  writeFileSync(storeFile, JSON.stringify({ 'https://rot.test': { tokenEnc: enc('k1:', 'tok_rot'), expiresAt: null, label: 'R' } }))
+  ok('a stale-key token still reads back', (await core.getStoredToken('https://rot.test')) === 'tok_rot')
+  const rotated = Buffer.from(JSON.parse(onDisk())['https://rot.test'].tokenEnc, 'base64').toString()
+  ok('a stale-key token is re-encrypted under the current key', rotated.startsWith('k2:'))
+  await core.storeToken('https://new.test', 'tok_new_secret', null, 'FOH')
+
+  // Ciphertext this machine can't decrypt (copied file, reset keychain) means
+  // unpaired: pair again, never a crash.
+  core.setVault({ encrypt: vault.encrypt, decrypt: async () => { throw new Error('bad key') } })
+  ok('undecryptable token reads as null', (await core.getStoredToken('https://new.test')) === null)
+  ok('undecryptable token is not paired', (await core.getState('https://new.test')).paired === false)
+
+  // With no vault at all, an encrypted entry can't be used (and isn't sent).
+  core.setVault(null)
+  ok('encrypted entry without a vault reads as null', (await core.getStoredToken('https://new.test')) === null)
+  await core.clearToken('https://old.test')
+  await core.clearToken('https://new.test')
+  await core.clearToken('https://rot.test')
 }
 
 // 4. UDP delivery to a local listener (via the core re-export)

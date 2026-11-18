@@ -82,16 +82,74 @@ async function writeStore(obj) {
   }
 }
 
-const live = (e) => !!(e?.token && (!e.expiresAt || new Date(e.expiresAt) > new Date()))
+// Token encryption. The Electron main process supplies a vault backed by
+// safeStorage (Windows DPAPI, macOS Keychain, Linux Secret Service), and tokens
+// are then stored as `tokenEnc` (base64 ciphertext) instead of `token`. Plain
+// Node (the tests, any future CLI) has no vault and stores `token` as before.
+// vault: {
+//   encrypt(string) → Promise<base64 string>,
+//   decrypt(base64 string) → Promise<{ value: string, stale: boolean }>
+// } where stale means the OS rotated its key and the value should be re-stored.
+let vault = null
+export function setVault(v) {
+  vault = v || null
+}
+
+/**
+ * The plaintext token in a store entry: { value, stale } or null if there is
+ * none or it can't be read.
+ */
+async function tokenOf(e) {
+  if (!e) return null
+  if (e.tokenEnc) {
+    if (!vault) return null
+    try {
+      const r = await vault.decrypt(e.tokenEnc)
+      return r?.value ? r : null
+    } catch {
+      return null // another machine/user's ciphertext, or a reset keychain: pair again
+    }
+  }
+  return e.token ? { value: e.token, stale: false } : null
+}
+
+const unexpired = (e) => !e?.expiresAt || new Date(e.expiresAt) > new Date()
+
+const entryFor = async (token, expiresAt, label) =>
+  vault ? { tokenEnc: await vault.encrypt(token), expiresAt, label } : { token, expiresAt, label }
+
+/**
+ * Re-store any plaintext token encrypted, once a vault is set. Run at startup,
+ * so tokens paired before encryption existed don't stay on disk in clear.
+ * Returns how many entries were converted.
+ */
+export async function migrateStore() {
+  if (!vault) return 0
+  const s = await readStore()
+  let n = 0
+  for (const [api, e] of Object.entries(s)) {
+    if (e?.token && !e.tokenEnc) {
+      s[api] = await entryFor(e.token, e.expiresAt, e.label)
+      n++
+    }
+  }
+  if (n) await writeStore(s)
+  return n
+}
 
 /** The stored, unexpired token for `api`, or null. */
 export async function getStoredToken(api) {
-  const e = (await readStore())[normalizeApi(api)]
-  return live(e) ? e.token : null
+  const key = normalizeApi(api)
+  const e = (await readStore())[key]
+  if (!unexpired(e)) return null
+  const t = await tokenOf(e)
+  if (!t) return null
+  if (t.stale) await storeToken(key, t.value, e.expiresAt, e.label) // re-encrypt under the new key
+  return t.value
 }
 export async function storeToken(api, token, expiresAt, label) {
   const s = await readStore()
-  s[normalizeApi(api)] = { token, expiresAt, label }
+  s[normalizeApi(api)] = await entryFor(token, expiresAt, label)
   await writeStore(s)
 }
 export async function clearToken(api) {
@@ -104,7 +162,8 @@ export async function clearToken(api) {
 export async function getState(api) {
   const normalized = normalizeApi(api)
   const e = (await readStore())[normalized]
-  return { api: normalized, paired: live(e), label: e?.label || '' }
+  const paired = !!(await getStoredToken(normalized))
+  return { api: normalized, paired, label: e?.label || '' }
 }
 
 // ── API calls ────────────────────────────────────────────────────────────────
